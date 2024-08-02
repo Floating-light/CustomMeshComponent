@@ -18,8 +18,9 @@
 #include "RHIUtilities.h"
 
 #include "MeshMaterialShader.h"
-
-
+#include "MaterialDomain.h"
+#include "Materials/MaterialRenderProxy.h"
+#include "MeshDrawShaderBindings.h"
 
 //Forward Declarations
 class FDeformMeshSceneProxy;
@@ -46,7 +47,7 @@ public:
 		: FLocalVertexFactory(InFeatureLevel, "FDeformMeshVertexFactory")
 	{
 		//We're not interested in Manual vertex fetch so we disable it 
-		bSupportsManualVertexFetch = false;
+		// bSupportsManualVertexFetch = false;
 	}
 
 	/* Should we cache the material's shadertype on this platform with this vertex factory? */
@@ -87,7 +88,7 @@ public:
 	/* Here we can initialize our RHI resources, so we can decide what would be in the final streams and the vertex declaration*/
 	/* In the LocalVertexFactory, 3 vertex declarations are initialized; PositionOnly, PositionAndNormalOnly, and the default, which is the one that will be used in the main rendering*/
 	/* PositionOnly is mandatory if you're enabling depth passes, however we can get rid of the PositionAndNormal since we're not interested in shading and we're only supporting unlit materials*/
-	virtual void InitRHI() override 
+	virtual void InitRHI(FRHICommandListBase& RHICmdList) override
 	{
 
 		// Check if this vertex factory has a valid feature level that is supported by the current platform
@@ -267,8 +268,9 @@ public:
 
 				//Get the needed data from the static mesh of the mesh section
 				//We're assuming that there's only one LOD
-				auto& LODResource = SrcSection.StaticMesh->RenderData->LODResources[0];
-
+				//auto& LODResource = SrcSection.StaticMesh->RenderData->LODResources[0];
+				auto& LODResource = SrcSection.StaticMesh->GetRenderData()->LODResources[0];
+				;
 				FDeformMeshVertexFactory* VertexFactory= &NewSection->VertexFactory;
 				//Initialize the vertex factory with the vertex data from the static mesh using the helper function defined above
 				InitVertexFactoryData(VertexFactory, &(LODResource.VertexBuffers));
@@ -317,7 +319,7 @@ public:
 
 			//We first create a resource array to use it in the create info for initializing the structured buffer on creation
 			TResourceArray<FMatrix>* ResourceArray = new TResourceArray<FMatrix>(true);
-			FRHIResourceCreateInfo CreateInfo;
+			FRHIResourceCreateInfo CreateInfo(TEXT("MyResource1"));
 			ResourceArray->Append(DeformTransforms);
 			CreateInfo.ResourceArray = ResourceArray;
 			//Set the debug name so we can find the resource when debugging in RenderDoc
@@ -359,9 +361,11 @@ public:
 		//Update the structured buffer only if it needs update
 		if(bDeformTransformsDirty && DeformTransformsSB)
 		{
-			void* StructuredBufferData = RHILockStructuredBuffer(DeformTransformsSB, 0, DeformTransforms.Num() * sizeof(FMatrix), RLM_WriteOnly);
+			void* StructuredBufferData = RHILockBuffer(DeformTransformsSB,0, DeformTransformsSB->GetSize(), RLM_WriteOnly);
+			//void* StructuredBufferData = RHILockStructuredBuffer(DeformTransformsSB, 0, DeformTransforms.Num() * sizeof(FMatrix), RLM_WriteOnly);
 			FMemory::Memcpy(StructuredBufferData, DeformTransforms.GetData(), DeformTransforms.Num() * sizeof(FMatrix));
-			RHIUnlockStructuredBuffer(DeformTransformsSB);
+			//RHIUnlockStructuredBuffer(DeformTransformsSB);
+			RHIUnlockBuffer(DeformTransformsSB); 
 			bDeformTransformsDirty = false;
 		}
 	}
@@ -441,7 +445,8 @@ public:
 						GetScene().GetPrimitiveUniformShaderParameters_RenderThread(GetPrimitiveSceneInfo(), bHasPrecomputedVolumetricLightmap, PreviousLocalToWorld, SingleCaptureIndex, bOutputVelocity);
 						//Alloate a temporary primitive uniform buffer, fill it with the data and set it in the batch element
 						FDynamicPrimitiveUniformBuffer& DynamicPrimitiveUniformBuffer = Collector.AllocateOneFrameResource<FDynamicPrimitiveUniformBuffer>();
-						DynamicPrimitiveUniformBuffer.Set(GetLocalToWorld(), PreviousLocalToWorld, GetBounds(), GetLocalBounds(), true, bHasPrecomputedVolumetricLightmap, DrawsVelocity(), bOutputVelocity);
+						//DynamicPrimitiveUniformBuffer.Set(GetLocalToWorld(), PreviousLocalToWorld, GetBounds(), GetLocalBounds(), true, bHasPrecomputedVolumetricLightmap, DrawsVelocity(), bOutputVelocity);
+						DynamicPrimitiveUniformBuffer.Set(GetLocalToWorld(), PreviousLocalToWorld, GetBounds(), GetLocalBounds(), true, bHasPrecomputedVolumetricLightmap, bOutputVelocity);
 						BatchElement.PrimitiveUniformBufferResource = &DynamicPrimitiveUniformBuffer.UniformBuffer;
 						BatchElement.PrimitiveIdMode = PrimID_DynamicPrimitiveShaderData;
 
@@ -508,7 +513,8 @@ private:
 	TArray<FMatrix> DeformTransforms;
 
 	//The structured buffer that will contain all the deform transoform and going to be used as a shader resource
-	FStructuredBufferRHIRef DeformTransformsSB;
+	//FStructuredBufferRHIRef DeformTransformsSB;
+	FBufferRHIRef DeformTransformsSB;
 
 	//The shader resource view of the structured buffer, this is what we bind to the vertex factory shader
 	FShaderResourceViewRHIRef DeformTransformsSRV;
@@ -589,7 +595,17 @@ IMPLEMENT_VERTEX_FACTORY_PARAMETER_TYPE(FDeformMeshVertexFactory, SF_Vertex, FDe
 
 ///////////////////////////////////////////////////////////////////////
 
-IMPLEMENT_VERTEX_FACTORY_TYPE(FDeformMeshVertexFactory, "/CustomShaders/LocalVertexFactory.ush", true, true, true, true, true);
+IMPLEMENT_VERTEX_FACTORY_TYPE(FDeformMeshVertexFactory, "/CustomShaders/LocalVertexFactory.ush", 
+	EVertexFactoryFlags::UsedWithMaterials
+	| EVertexFactoryFlags::SupportsStaticLighting
+	| EVertexFactoryFlags::SupportsDynamicLighting
+	| EVertexFactoryFlags::SupportsPrecisePrevWorldPos
+	| EVertexFactoryFlags::SupportsPositionOnly
+	| EVertexFactoryFlags::SupportsPrimitiveIdStream
+	| EVertexFactoryFlags::SupportsPSOPrecaching
+	| EVertexFactoryFlags::SupportsRayTracing
+	| EVertexFactoryFlags::SupportsRayTracingDynamicGeometry
+	| EVertexFactoryFlags::SupportsManualVertexFetch);
 
 ///////////////////////////////////////////////////////////////////////
 

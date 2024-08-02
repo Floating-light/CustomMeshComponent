@@ -8,7 +8,9 @@ public class CustomUMeshComponentEditorTarget : TargetRules
 	public CustomUMeshComponentEditorTarget( TargetInfo Target) : base(Target)
 	{
 		Type = TargetType.Editor;
-		DefaultBuildSettings = BuildSettingsVersion.V2;
-		ExtraModuleNames.AddRange( new string[] { "CustomUMeshComponent", "DeformMesh" } );
+		DefaultBuildSettings = BuildSettingsVersion.Latest;
+        IncludeOrderVersion = EngineIncludeOrderVersion.Latest;
+
+        ExtraModuleNames.AddRange( new string[] { "CustomUMeshComponent", "DeformMesh" } );
 	}
 }
